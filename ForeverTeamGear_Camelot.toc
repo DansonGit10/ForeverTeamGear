@@ -1,0 +1,19 @@
+## Interface: 16001
+## Title: Forever Team Gear
+## Notes: Local character tracking or optional group/guild sharing with privacy settings.
+## Author: Daniel & Codex
+## Version: 0.30.3
+## SavedVariables: ForeverTeamGearDB
+## AllowLoadGameType: camelot
+
+Core.lua
+Settings.lua
+CharacterPicker.lua
+Comm.lua
+PrivateGroup.lua
+Scanner.lua
+Loot.lua
+UI.lua
+TalentUI.lua
+MinimapButton.lua
+MacroUI.lua
