@@ -68,6 +68,9 @@ function ns:ResetCommunication()
     Comm.queue, Comm.incoming, Comm.requests = {}, {}, {}
     Comm.incomingBytes = 0
     Comm.groupSyncUntil = nil
+    Comm.publishIntent = nil
+    Comm.profilePending, Comm.profileOptions = false, nil
+    Comm.profileGeneration = (Comm.profileGeneration or 0) + 1
     Comm.profileCache = {}
     Comm.lastRequest = nil
     Comm.lastPrivateRequest = nil
@@ -271,6 +274,12 @@ function Comm:OnMessage(prefix, message, channel, sender)
             if not known then ns:Print("Private sync: connected to " .. ns:WhisperTarget(sender) .. ". Requesting character data.") end
             if ns.RefreshPrivateStatus then ns:RefreshPrivateStatus() end
             if not known then ns:SendPrivateHello(sender) end
+            local intent = self.publishIntent
+            if intent and intent.code == code and GetTime() <= intent.untilTime then
+                -- Complete only this user's pending share when discovery was slow.
+                -- The peer is not asked to upload a profile in return.
+                ns:SendProfile("WHISPER", sender, { priority = 1, force = true })
+            end
             -- Handshake establishes a route only; it never requests profiles.
             return
         end
@@ -278,6 +287,10 @@ function Comm:OnMessage(prefix, message, channel, sender)
     if not sender or sender == ns:PlayerKey() or not ns:CanCommunicate(channel, sender) then return end
     if privateCode then
         if not ns:IsPrivatePeer(sender) then return end
+    elseif channel == "GUILD" then
+        if not ns:UsesGuild() or not (IsInGuild and IsInGuild()) then return end
+        -- GUILD is an authenticated guild transport; roster data may not be loaded yet.
+        ns.guildMembers = ns.guildMembers or {}; ns.guildMembers[sender] = true
     elseif not ns:UsesGuild() or not ns:IsGuildCharacter(sender) then return end
     -- Legacy requests are deliberately ignored: one user's click must not
     -- make every online client upload its profile.
@@ -369,6 +382,9 @@ end
 
 function ns:RequestSync(userInitiated)
     if not groupChannel() then return end
+    if userInitiated and self:Mode() == "group" then
+        Comm.publishIntent = { code = self:GroupCode(), untilTime = GetTime() + 30 }
+    end
     if userInitiated and self.DiscoverPrivateGroup then self:DiscoverPrivateGroup(true) end
     -- Only publish this client's own snapshot. A short delay lets private
     -- discovery finish; login announcements are spread across thirty seconds.
@@ -399,15 +415,23 @@ end
 function ns:BroadcastProfile(delay, options)
     if not groupChannel() then return end
     local due = GetTime() + (delay or 2)
-    if Comm.profilePending and Comm.profileDue <= due and not (options and options.force) then return end
+    local pending = Comm.profilePending and Comm.profileOptions or {}
+    local merged = {}
+    for key, value in pairs(pending) do merged[key] = value end
+    for key, value in pairs(options or {}) do merged[key] = value end
+    if pending.force then merged.force = true end
+    if pending.priority and options and options.priority then merged.priority = math.min(pending.priority, options.priority) end
+    Comm.profileOptions = merged
+    if Comm.profilePending and Comm.profileDue <= due then return end
     Comm.profilePending = true
     Comm.profileDue = due
     Comm.profileGeneration = (Comm.profileGeneration or 0) + 1
     local generation = Comm.profileGeneration
     C_Timer.After(delay or 2, function()
         if Comm.profileGeneration ~= generation then return end
-        Comm.profilePending = false
-        ns:SendProfile(groupChannel(), nil, options)
+        local sendOptions = Comm.profileOptions
+        Comm.profilePending, Comm.profileOptions = false, nil
+        ns:SendProfile(groupChannel(), nil, sendOptions)
     end)
 end
 
