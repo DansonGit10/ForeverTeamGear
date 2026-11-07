@@ -7,7 +7,7 @@ local BACKGROUND_NAMES = {
     HUNTER = { beastmastery = "HunterBeastMastery", marksmanship = "HunterMarksmanship", survival = "HunterSurvival" },
     MAGE = { arcane = "MageArcane", fire = "MageFire", frost = "MageFrost" },
     PALADIN = { holy = "PaladinHoly", protection = "PaladinProtection", retribution = "PaladinCombat", combat = "PaladinCombat" },
-    PRIEST = { discipline = "PriestDiscipline", holy = "PriestHoly", shadow = "PriestShadow" },
+    PRIEST = { discipline = "PriestDiscipline", holy = "PriestHoly", shadow = "PriestShadow", shadowmagic = "PriestShadow" },
     ROGUE = { assassination = "RogueAssassination", combat = "RogueCombat", subtlety = "RogueSubtlety" },
     SHAMAN = { elemental = "ShamanElementalCombat", elementalcombat = "ShamanElementalCombat", enhancement = "ShamanEnhancement", restoration = "ShamanRestoration" },
     WARLOCK = { affliction = "WarlockCurses", curses = "WarlockCurses", demonology = "WarlockSummoning", summoning = "WarlockSummoning", destruction = "WarlockDestruction" },
@@ -245,7 +245,8 @@ function TalentUI:ShowProfile(profile)
 
     for _, nodeID in ipairs(nodeIDs) do
         local nodeOK, nodeInfo = pcall(C_Traits.GetNodeInfo, configID, nodeID)
-        if nodeOK and nodeInfo and nodeInfo.entryIDs and #nodeInfo.entryIDs > 0 then
+        if nodeOK and nodeInfo and nodeInfo.isVisible ~= false and nodeInfo.entryIDs and #nodeInfo.entryIDs > 0
+            and type(nodeInfo.posX) == "number" and type(nodeInfo.posY) == "number" then
             for _, groupID in ipairs(nodeInfo.groupIDs or {}) do
                 local layout = layouts[groupID]
                 if layout then
@@ -259,6 +260,24 @@ function TalentUI:ShowProfile(profile)
         end
     end
 
+    -- Hidden/alternate trait nodes may occupy the same grid cell. Render one
+    -- talent per cell, preferring the selected node over an inactive alternate.
+    for _, layout in pairs(layouts) do
+        local cells, visible = {}, {}
+        for _, node in ipairs(layout.nodes) do
+            local key = tostring(node.posX) .. ":" .. tostring(node.posY)
+            local previous = cells[key]
+            local selected = profile.talents.nodes and profile.talents.nodes[node.ID]
+            if not previous or selected and (selected.rank or 0) > 0 then cells[key] = node end
+        end
+        layout.minX, layout.maxX, layout.minY, layout.maxY = math.huge, -math.huge, math.huge, -math.huge
+        for _, node in pairs(cells) do
+            visible[#visible + 1] = node
+            layout.minX = math.min(layout.minX, node.posX); layout.maxX = math.max(layout.maxX, node.posX)
+            layout.minY = math.min(layout.minY, node.posY); layout.maxY = math.max(layout.maxY, node.posY)
+        end
+        layout.nodes = visible
+    end
     local buttonIndex, positions = 0, {}
     for _, layout in pairs(layouts) do
         local width = math.max(1, layout.maxX - layout.minX)
@@ -270,16 +289,17 @@ function TalentUI:ShowProfile(profile)
             positions[nodeInfo.ID] = { x = x + 19, y = y - 19, panel = layout.panel }
             local selected = profile.talents.nodes and profile.talents.nodes[nodeInfo.ID]
             local entryID, entryInfo, spellID, name, icon, description = talentDefinition(configID, nodeInfo, selected)
+            local learned = selected and (selected.rank or 0) > 0
             local button = getNodeButton(buttonIndex, layout.panel)
             button:SetPoint("TOPLEFT", x, y)
             button.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-            button.icon:SetDesaturated(not selected)
-            button:SetBackdropColor(selected and 0.28 or 0.05, selected and 0.2 or 0.05, 0.02, 1)
-            button:SetBackdropBorderColor(selected and 1 or 0.35, selected and 0.82 or 0.35, selected and 0 or 0.35, 1)
+            button.icon:SetDesaturated(not learned)
+            button:SetBackdropColor(learned and 0.28 or 0.05, learned and 0.2 or 0.05, 0.02, 1)
+            button:SetBackdropBorderColor(learned and 1 or 0.35, learned and 0.82 or 0.35, learned and 0 or 0.35, 1)
             local rank = selected and selected.rank or 0
             local maxRank = entryInfo and entryInfo.maxRanks or nodeInfo.maxRanks or 1
             button.rank:SetText(string.format("%d/%d", rank, maxRank))
-            button.rank:SetTextColor(selected and 0.2 or 0.65, selected and 1 or 0.65, selected and 0.2 or 0.65)
+            button.rank:SetTextColor(learned and 0.2 or 0.65, learned and 1 or 0.65, learned and 0.2 or 0.65)
             button.entryID = entryID; button.spellID = spellID; button.talentName = name
             button.currentRank = rank; button.maxRank = maxRank; button.description = description
             button:Show()
@@ -296,6 +316,7 @@ function TalentUI:ShowProfile(profile)
                 local dx, dy = to.x - from.x, to.y - from.y
                 local length = math.max(1, math.sqrt((dx * dx) + (dy * dy)))
                 local edge = getEdge(edgeIndex)
+                edge:SetParent(from.panel)
                 edge:SetSize(math.max(1, length - 32), 3)
                 edge:SetPoint("CENTER", from.panel, "TOPLEFT", (from.x + to.x) / 2, (from.y + to.y) / 2)
                 if edge.SetRotation then edge:SetRotation(angleFor(dx, dy)) end
@@ -304,6 +325,7 @@ function TalentUI:ShowProfile(profile)
                 edge:Show()
 
                 local arrow = getArrow(edgeIndex)
+                arrow:SetParent(from.panel)
                 arrow:SetSize(18, 18)
                 arrow:SetPoint("CENTER", from.panel, "TOPLEFT", to.x - (dx / length) * 23, to.y - (dy / length) * 23)
                 if arrow.SetRotation then arrow:SetRotation(angleFor(dx, dy) - (math.pi / 2)) end
