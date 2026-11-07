@@ -272,6 +272,7 @@ function Comm:OnMessage(prefix, message, channel, sender)
             ns.privatePeers = ns.privatePeers or {}
             ns.privatePeers[sender] = code
             if not known then ns:Print("Private sync: connected to " .. ns:WhisperTarget(sender) .. ". Requesting character data.") end
+            if ns.SetPrivateDiscoveryStatus then ns:SetPrivateDiscoveryStatus("Connected; ready to share") end
             if ns.RefreshPrivateStatus then ns:RefreshPrivateStatus() end
             if not known then ns:SendPrivateHello(sender) end
             local intent = self.publishIntent

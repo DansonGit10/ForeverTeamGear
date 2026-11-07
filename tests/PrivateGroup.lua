@@ -26,8 +26,24 @@ GetChannelName = function(name) return channels[name] and channels[name][active.
 JoinTemporaryChannel = function(name, password)
     assert(userAction, "Joining a private channel must require a user action")
     assert(password == active.ns:GroupCode())
-    channels[name] = channels[name] or {}
-    channels[name][active.key] = true
+    if active.asyncJoinDelay then
+        local joining = active
+        timers[#timers + 1] = {client = joining, at = clock + joining.asyncJoinDelay, fn = function()
+            channels[name] = channels[name] or {}
+            local previous = {}
+            for key in pairs(channels[name]) do previous[#previous + 1] = key end
+            channels[name][joining.key] = true
+            joining.ns:Emit("CHAT_MSG_CHANNEL_NOTICE", "YOU_JOINED", nil, nil, "1. " .. name)
+            for _, key in ipairs(previous) do
+                active = clients[key]
+                active.ns:Emit("CHAT_MSG_CHANNEL_JOIN", "", joining.key, nil, "1. " .. name)
+            end
+            active = joining
+        end}
+    else
+        channels[name] = channels[name] or {}
+        channels[name][active.key] = true
+    end
 end
 LeaveChannelByName = function(name) if channels[name] then channels[name][active.key] = nil end end
 C_Timer = {

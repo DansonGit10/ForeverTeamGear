@@ -88,7 +88,7 @@ function ns:RefreshPrivateStatus()
     for peer in pairs(self.privatePeers or {}) do
         if self:IsPrivatePeer(peer) then count = count + 1 end
     end
-    Settings.frame.privateStatus:SetText("Connected friends: " .. count)
+    Settings.frame.privateStatus:SetText("Connected friends: " .. count .. "\n" .. (self.privateDiscoveryStatus or ""))
 end
 
 function ns:ParsePrivateGroup(code)

@@ -2,7 +2,7 @@
 ## Title: Forever Team Gear
 ## Notes: Local character tracking or optional group/guild sharing with privacy settings.
 ## Author: Daniel & Codex
-## Version: 0.30.5
+## Version: 0.30.6
 ## SavedVariables: ForeverTeamGearDB
 ## AllowLoadGameType: camelot
 
