@@ -41,11 +41,34 @@ local buttons, shadow, holyRight = 0, false, false
 for _, value in ipairs(widgets) do
     if value.kind == "Button" and value.shown then
         buttons = buttons + 1
-        assert(value.talentName ~= "Talent 3" and value.talentName ~= "Talent 5")
+        assert(value.talentName ~= "Talent 5")
         if value.talentName == "Talent 4" then holyRight = value.point[2] == 266 end
         if value.talentName == "Talent 7" then assert(value.icon.desaturated, "Zero-rank records must stay inactive") end
     end
     if type(value.texture) == "string" and value.texture:find("PriestShadow-TopLeft",1,true) then shadow = true end
 end
-assert(buttons == 5 and shadow and holyRight)
-print("PASS: Shadow Magic background, hidden-node filtering, selected alternate deduplication, layout bounds and zero-rank styling")
+assert(buttons == 6 and shadow and holyRight)
+print("PASS: Shadow Magic background, hidden-node filtering, distinct alternate preservation, layout bounds and zero-rank styling")
+
+-- Huge coordinate outliers used to compress an entire tree into one corner.
+local crowded = {}
+for index = 1, 30 do
+    crowded[index] = {ID = index, posX = index % 4 * 100, posY = math.floor((index-1)/4) * 100}
+end
+crowded[31] = {ID=31,posX=100000,posY=100000}
+crowded[32] = {ID=32,posX=crowded[1].posX,posY=crowded[1].posY}
+local positions, height = ns:TalentGridPositions(crowded)
+local count = 0
+for _, node in ipairs(crowded) do
+    count = count + 1
+    local a = positions[node.ID]
+    assert(a and a.x >= 0 and a.x + 38 <= 306 and -a.y + 38 <= height)
+    for _, other in ipairs(crowded) do
+        if other.ID ~= node.ID then
+            local b = positions[other.ID]
+            assert(math.abs(a.x-b.x) >= 38 or math.abs(a.y-b.y) >= 38, "Talent buttons must never overlap, even with duplicate/outlier coordinates")
+        end
+    end
+end
+assert(count == 32 and height > 492, "Overflow talents must remain available through scrolling")
+print("PASS: collision-free talent grid with outliers, coincident nodes, stable spacing, complete node preservation and scroll overflow")

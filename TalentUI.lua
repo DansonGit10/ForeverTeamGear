@@ -25,6 +25,45 @@ local function pointForGroup(profile, groupID)
     return 0
 end
 
+function ns:TalentGridPositions(nodes)
+    local xs, ys, seenX, seenY, sorted = {}, {}, {}, {}, {}
+    local function coordinate(value) return math.floor(value * 1000 + 0.5) / 1000 end
+    for _, node in ipairs(nodes) do
+        local x, y = coordinate(node.posX), coordinate(node.posY)
+        if not seenX[x] then xs[#xs + 1], seenX[x] = x, true end
+        if not seenY[y] then ys[#ys + 1], seenY[y] = y, true end
+        sorted[#sorted + 1] = { node = node, x = x, y = y }
+    end
+    table.sort(xs); table.sort(ys)
+    local xIndex, yIndex = {}, {}
+    for index, x in ipairs(xs) do xIndex[x] = index - 1 end
+    for index, y in ipairs(ys) do yIndex[y] = index - 1 end
+    table.sort(sorted, function(a, b)
+        if a.y ~= b.y then return a.y < b.y end
+        if a.x ~= b.x then return a.x < b.x end
+        return a.node.ID < b.node.ID
+    end)
+    local columns, occupied, positions, lastRow = math.max(1, math.min(4, #xs)), {}, {}, 0
+    local overflow = {}
+    local function place(entry, cell)
+        occupied[cell] = true
+        local row, column = math.floor(cell / columns), cell % columns
+        positions[entry.node.ID] = { x = columns == 1 and 147 or 28 + column * 238 / (columns - 1), y = -10 - row * 54 }
+        lastRow = math.max(lastRow, row)
+    end
+    for _, entry in ipairs(sorted) do
+        local row, column = yIndex[entry.y], math.min(columns - 1, xIndex[entry.x])
+        local cell = row * columns + column
+        if occupied[cell] then overflow[#overflow + 1] = {entry = entry, cell = cell} else place(entry, cell) end
+    end
+    for _, value in ipairs(overflow) do
+        local cell = value.cell
+        while occupied[cell] do cell = cell + 1 end
+        place(value.entry, cell)
+    end
+    return positions, math.max(492, (lastRow + 1) * 54 + 16)
+end
+
 local function createBrowser()
     local frame = CreateFrame("Frame", "ForeverTeamGearTalentFrame", UIParent, "BasicFrameTemplateWithInset")
     frame:SetSize(1040, 650)
@@ -80,6 +119,11 @@ local function createBrowser()
         local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         title:SetPoint("LEFT", icon, "RIGHT", 8, 0); title:SetPoint("RIGHT", -12, 0); title:SetJustifyH("LEFT")
         panel.title = title
+        local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT", 2, -50); scroll:SetPoint("BOTTOMRIGHT", -22, 8)
+        local content = CreateFrame("Frame", nil, scroll)
+        content:SetSize(306, 492); scroll:SetScrollChild(content)
+        panel.nodeContent, panel.nodeScroll = content, scroll
         TalentUI.panels[index] = panel
     end
 
@@ -260,37 +304,20 @@ function TalentUI:ShowProfile(profile)
         end
     end
 
-    -- Hidden/alternate trait nodes may occupy the same grid cell. Render one
-    -- talent per cell, preferring the selected node over an inactive alternate.
-    for _, layout in pairs(layouts) do
-        local cells, visible = {}, {}
-        for _, node in ipairs(layout.nodes) do
-            local key = tostring(node.posX) .. ":" .. tostring(node.posY)
-            local previous = cells[key]
-            local selected = profile.talents.nodes and profile.talents.nodes[node.ID]
-            if not previous or selected and (selected.rank or 0) > 0 then cells[key] = node end
-        end
-        layout.minX, layout.maxX, layout.minY, layout.maxY = math.huge, -math.huge, math.huge, -math.huge
-        for _, node in pairs(cells) do
-            visible[#visible + 1] = node
-            layout.minX = math.min(layout.minX, node.posX); layout.maxX = math.max(layout.maxX, node.posX)
-            layout.minY = math.min(layout.minY, node.posY); layout.maxY = math.max(layout.maxY, node.posY)
-        end
-        layout.nodes = visible
-    end
     local buttonIndex, positions = 0, {}
     for _, layout in pairs(layouts) do
-        local width = math.max(1, layout.maxX - layout.minX)
-        local height = math.max(1, layout.maxY - layout.minY)
+        local grid, contentHeight = ns:TalentGridPositions(layout.nodes)
+        layout.panel.nodeContent:SetHeight(contentHeight)
+        layout.panel.nodeScroll:SetVerticalScroll(0)
         for _, nodeInfo in ipairs(layout.nodes) do
             buttonIndex = buttonIndex + 1
-            local x = 28 + (((nodeInfo.posX or 0) - layout.minX) / width) * 238
-            local y = -66 - (((nodeInfo.posY or 0) - layout.minY) / height) * 420
-            positions[nodeInfo.ID] = { x = x + 19, y = y - 19, panel = layout.panel }
+            local position = grid[nodeInfo.ID]
+            local x, y = position.x, position.y
+            positions[nodeInfo.ID] = { x = x + 19, y = y - 19, panel = layout.panel.nodeContent }
             local selected = profile.talents.nodes and profile.talents.nodes[nodeInfo.ID]
             local entryID, entryInfo, spellID, name, icon, description = talentDefinition(configID, nodeInfo, selected)
             local learned = selected and (selected.rank or 0) > 0
-            local button = getNodeButton(buttonIndex, layout.panel)
+            local button = getNodeButton(buttonIndex, layout.panel.nodeContent)
             button:SetPoint("TOPLEFT", x, y)
             button.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
             button.icon:SetDesaturated(not learned)
