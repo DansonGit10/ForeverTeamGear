@@ -613,9 +613,24 @@ local function showUpgradeNotice(record, upgrades)
     frame:Raise()
 end
 
+function ns:CanReceiveBoeAlert(record)
+    if not record or not self.db then return false end
+    hydrateClassification(record)
+    if record.classID == nil or record.subclassID == nil then return false end
+    local profile = self.db.players[self:PlayerKey()]
+    -- Check the logged-in character, not another member's possible upgrade.
+    if UnitClass and UnitLevel then
+        local _, class = UnitClass("player")
+        profile = {classToken = class, level = UnitLevel("player") or 0}
+    end
+    if not profile then return false end
+    return self:CanProfileUseBoe(profile, record)
+end
+
 function ns:AnnounceBoeUpgrades(record, manual)
     if not record or record.deleted or not self.db or (not manual and not self:AllowsAutomaticAlert(record.quality)) then return end
     if not self:IsVisibleCharacter(record.looter) then return end
+    if not manual and not self:CanReceiveBoeAlert(record) then return end
     local noticeKey = table.concat({ tostring(record.id or 0), tostring(record.looter or "?"), tostring(record.at or 0) }, ":")
     if not manual and Loot.notified[noticeKey] then return end
     local upgrades = {}

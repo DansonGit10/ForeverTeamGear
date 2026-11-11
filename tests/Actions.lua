@@ -68,16 +68,37 @@ assert(ns:DeleteBoe(second) and #ns.db.boe == 1 and ns.db.boe[1] == first)
 assert(second.deleted and ForeverTeamGearUpgradePopup.hidden and refreshes == 1)
 assert(not ns:DeleteBoe(second) and refreshes == 1)
 ns:AnnounceBoeUpgrades(second) -- deleted drops must not reopen scheduled popups
+ns.db.players.Me = {key="Me",classToken="ROGUE",level=60}
 local comparisons = 0
 ns.ComparisonFor = function() comparisons = comparisons + 1; return {} end
-ns:AnnounceBoeUpgrades({ id = 10, looter = "Me", quality = 2 })
+ns:AnnounceBoeUpgrades({ id = 10, looter = "Me", quality = 2, classID = 2, subclassID = 15, equipLoc = "INVTYPE_WEAPON", minLevel = 1 })
 assert(comparisons == 0, "Automatic alerts must default to off")
 ns.db.settings.alertsEnabled = true
-ns:AnnounceBoeUpgrades({ id = 10, looter = "Me", quality = 2 })
+ns:AnnounceBoeUpgrades({ id = 10, looter = "Me", quality = 2, classID = 2, subclassID = 15, equipLoc = "INVTYPE_WEAPON", minLevel = 1 })
 assert(comparisons == 1, "Enabled automatic alerts must compare drops")
 ns.db.settings.alertsEnabled = false
-ns:AnnounceBoeUpgrades({ id = 10, looter = "Me", quality = 2 }, true)
+ns:AnnounceBoeUpgrades({ id = 10, looter = "Me", quality = 2, classID = 2, subclassID = 15, equipLoc = "INVTYPE_WEAPON", minLevel = 1 }, true)
 assert(comparisons == 2, "Manual comparisons must work with alerts off")
+ns.db.settings.alertsEnabled = true
+ns.db.players.Me = {key="Me",classToken="PRIEST",level=20}
+local leather = {id=20,looter="Friend",quality=2,classID=4,subclassID=2,equipLoc="INVTYPE_CHEST",minLevel=5}
+assert(not ns:CanReceiveBoeAlert(leather))
+ns:AnnounceBoeUpgrades(leather)
+assert(comparisons == 2, "Another player's usable item must not trigger an alert for an incompatible local class")
+local tooHigh = {id=21,looter="Friend",quality=2,classID=4,subclassID=1,equipLoc="INVTYPE_CHEST",minLevel=30}
+assert(not ns:CanReceiveBoeAlert(tooHigh))
+ns:AnnounceBoeUpgrades(tooHigh)
+assert(comparisons == 2, "Level requirements must be checked before automatic comparisons")
+local cloth = {id=22,looter="Friend",quality=2,classID=4,subclassID=1,equipLoc="INVTYPE_CHEST",minLevel=10}
+assert(ns:CanReceiveBoeAlert(cloth))
+ns:AnnounceBoeUpgrades(cloth)
+assert(comparisons == 3)
+assert(not ns:CanReceiveBoeAlert({id=23,looter="Friend"}), "Unknown item classification must not trigger automatic alerts")
+assert(not ns:CanReceiveBoeAlert({id=24,classID=2,subclassID=7,equipLoc="INVTYPE_WEAPON",minLevel=1}), "Priests cannot use swords")
+ns:AnnounceBoeUpgrades(leather, true)
+assert(comparisons == 4, "Manual team comparisons must remain available")
+print("PASS: local class, armor, weapon and level eligibility gate automatic alerts; unknown data is suppressed; manual comparisons preserved")
+
 
 assert(loadfile("MacroUI.lua"))("ForeverTeamGear", ns)
 local ui = ns.modules[2]

@@ -168,3 +168,5 @@ Version 0.30.6: Private-group discovery handles asynchronous channel joins and b
 Version 0.30.7: Talent trees use a fixed, collision-free grid rather than proportional coordinate scaling. Extreme coordinates no longer compress nearby icons, distinct nodes sharing a position remain accessible, and overflowing trees can be scrolled independently.
 
 Version 0.30.8: Recipe capture waits for the profession API to be ready, retries delayed loading, and preserves previous recipes on empty or incomplete scans. Manual sharing refreshes the currently open profession first. Recipe names and icons now travel with output and material data. All profession slots, including the sixth secondary slot, are scanned. Open each profession once after updating, then click Share my data to repair previously empty received snapshots.
+
+Version 0.31.1: Automatic BoE popups first check the logged-in character's class, armor/weapon compatibility and required level. An upgrade for another player no longer opens a popup when the local character cannot equip the item. Unknown item classification suppresses automatic alerts; manual team comparisons and Test Alert remain available.
