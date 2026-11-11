@@ -349,6 +349,7 @@ function Comm:OnMessage(prefix, message, channel, sender)
 end
 
 function ns:RequestGroupSync()
+    if self.ScanRecipes then self:ScanRecipes(true) end
     if self:Mode() == "offline" then self:Print("Offline mode: local data refreshed."); return false end
     local raid = IsInRaid and IsInRaid()
     if not raid and not (IsInGroup and IsInGroup()) then
@@ -382,6 +383,7 @@ function ns:RequestGroupSync()
 end
 
 function ns:RequestSync(userInitiated)
+    if userInitiated and self.ScanRecipes then self:ScanRecipes(true) end
     if not groupChannel() then return end
     if userInitiated and self:Mode() == "group" then
         Comm.publishIntent = { code = self:GroupCode(), untilTime = GetTime() + 30 }

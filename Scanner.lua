@@ -132,15 +132,8 @@ local function scanProfessions(existing)
     local result = existing or {}
     if not GetProfessions or not GetProfessionInfo then return result end
     local found = {}
-    local profession1, profession2, archaeology, fishing, cooking = GetProfessions()
     local professionIndexes = {}
-    for _, index in pairs({
-        primary1 = profession1,
-        primary2 = profession2,
-        archaeology = archaeology,
-        fishing = fishing,
-        cooking = cooking,
-    }) do
+    for _, index in pairs({ GetProfessions() }) do
         if index then professionIndexes[#professionIndexes + 1] = index end
     end
     for _, index in ipairs(professionIndexes) do
@@ -153,7 +146,11 @@ local function scanProfessions(existing)
             end
         end
     end
-    for name in pairs(result) do if not found[name] then result[name] = nil end end
+    -- The client can return an empty profession list while loading.
+    -- Keep saved recipes until an authoritative nonempty list is available.
+    if next(found) then
+        for name in pairs(result) do if not found[name] then result[name] = nil end end
+    end
     return result
 end
 
@@ -231,18 +228,26 @@ function ns:ScanProfile()
     return profile
 end
 
-function ns:ScanRecipes()
-    if not C_TradeSkillUI or not C_TradeSkillUI.GetAllRecipeIDs then return end
-    local base = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
+function ns:ScanRecipes(suppressBroadcast)
+    if not C_TradeSkillUI or not C_TradeSkillUI.GetAllRecipeIDs then return false end
+    if C_TradeSkillUI.IsTradeSkillReady then
+        local ok, ready = pcall(C_TradeSkillUI.IsTradeSkillReady)
+        if not ok or not ready then return false end
+    end
+    local baseOK, base = pcall(function() return C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo() end)
+    if not baseOK then return false end
     local professionName = base and base.professionName
-    if not professionName or professionName == "" then return end
+    if not professionName or professionName == "" then return false end
     local profile = self:ScanProfile()
     local categories = categoryNames()
     local profession = profile.professions[professionName] or { rank = base.skillLevel or 0, maxRank = base.maxSkillLevel or 0 }
-    profession.recipes = {}
-    for _, recipeID in ipairs(C_TradeSkillUI.GetAllRecipeIDs() or {}) do
-        local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
-        if info and info.learned then
+    local idsOK, ids = pcall(C_TradeSkillUI.GetAllRecipeIDs)
+    if not idsOK or type(ids) ~= "table" or #ids == 0 then return false end
+    local recipes = {}
+    for _, recipeID in ipairs(ids) do
+        local infoOK, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+        if not infoOK or not info then return false end
+        if info.learned or info.isLearned then
             local categoryName = info.categoryID and categories[info.categoryID]
             if not categoryName and info.categoryID and C_TradeSkillUI.GetCategoryInfo then
                 local categoryOK, categoryInfo = pcall(C_TradeSkillUI.GetCategoryInfo, info.categoryID)
@@ -284,14 +289,18 @@ function ns:ScanRecipes()
                 end
             end
             if not categoryName or categoryName == "" then recipe.category = fallbackCategory(recipe.outputItemID) end
-            profession.recipes[#profession.recipes + 1] = recipe
+            recipes[#recipes + 1] = recipe
         end
     end
+    if #recipes == 0 then return false end
+    profession.recipes = recipes
+    profession.icon = base.professionIcon or base.icon or profession.icon
     table.sort(profession.recipes, function(a, b) return (a.name or "") < (b.name or "") end)
     profile.professions[professionName] = profession
     profile.updated = self:Now()
-    self:BroadcastProfile()
+    if not suppressBroadcast then self:BroadcastProfile() end
     self:RefreshWindow()
+    return true
 end
 
 function ns:ScanAll()
@@ -352,6 +361,8 @@ local function serializeProfile(profile)
                 recipe.categoryID or 0,
                 tostring(recipe.category or "Other"):gsub("[%^;~]", " "),
                 table.concat(reagents, ","),
+                tostring(recipe.name or ""):gsub("[%^;~\n\t]", " "),
+                recipe.icon or 0,
             }, "^")
         end
         professions[#professions + 1] = table.concat({ name, profession.rank or 0, profession.maxRank or 0, profession.icon or 0, table.concat(recipes, ";") }, "~")
@@ -499,6 +510,8 @@ function ns:AcceptProfile(payload, sender, unescape, split, privateCode)
                         requiredLevel = tonumber(fields[5]) or 0,
                         categoryID = tonumber(fields[6]) or 0,
                         category = fields[7] ~= "" and fields[7] or "Other",
+                        name = fields[9] and fields[9] ~= "" and fields[9] or nil,
+                        icon = tonumber(fields[10]),
                         reagents = {},
                     }
                     for _, encodedReagent in ipairs(split(fields[8] or "", ",")) do
@@ -591,10 +604,13 @@ function Scanner:Initialize()
     local function queueRecipeScan(delay)
         if Scanner.recipeScanPending then return end
         Scanner.recipeScanPending = true
-        C_Timer.After(delay, function()
-            Scanner.recipeScanPending = false
-            ns:ScanRecipes()
-        end)
+        local attempts = 0
+        local function scan()
+            attempts = attempts + 1
+            if ns:ScanRecipes() or attempts >= 8 then Scanner.recipeScanPending = false; return end
+            C_Timer.After(0.5, scan)
+        end
+        C_Timer.After(delay, scan)
     end
     ns:On("TRADE_SKILL_SHOW", function() queueRecipeScan(0.5) end)
     ns:On("TRADE_SKILL_LIST_UPDATE", function() queueRecipeScan(0.2) end)
