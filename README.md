@@ -1,5 +1,10 @@
 # Forever Team Gear
 
+### Automatic synchronization in 0.31.0
+
+Automatic synchronization is enabled in online modes. A small section manifest is announced 10–40 seconds after entering the world and every 5–6 minutes thereafter. Receivers request only missing or changed sections through targeted addon whispers, with at most two automatic downloads active at once. Legacy guild-wide sync requests remain ignored. Existing private-group handshakes announce manifests automatically, and supported channel-roster APIs rediscover online peers in an already joined private channel after reload. Joining a private channel still requires the existing setup/share click when the client has not joined it; protected chat operations are never retried from background timers. Offline mode disables all communication. Sharing permissions, paced packets and receive-memory limits remain in effect. Sync Party and Share my data remain available for manual use. All participants should update.
+
+
 ### Sync Now in 0.30.0
 
 Sync Now, `/ftg sync`, and right-clicking the minimap button exchange profiles only with current party/raid members. Requests are sent through PARTY/RAID; profiles travel through audience-checked addon whispers. Offline mode does not communicate. Existing guild membership / matching private group code and sharing settings still apply. A request has a 30-second cooldown; replies are delayed randomly by 1–5 seconds and aggregate reply requests are rate-limited. No guild-wide request is issued. `/ftg share` retains the one-way publication/discovery command. Background own-data publication remains unchanged.

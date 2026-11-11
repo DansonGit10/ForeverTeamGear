@@ -64,11 +64,77 @@ local function permitted(kind)
     return not option or ns:CanShare(option)
 end
 
+local function signatures(manifest)
+    local result = {}
+    for section, hash in (manifest or ""):gmatch("([IETRBK])([%da-f]+)") do
+        if #hash == 8 then result[section] = hash end
+    end
+    return result
+end
+
+function ns:SendProfileManifest(channel, target, manifest)
+    channel = channel or groupChannel()
+    if not channel then return end
+    if not manifest then
+        local values, parts = self:SharedProfileValues(), {}
+        for _, section in ipairs(sections) do
+            local fields = {}
+            for _, field in ipairs(section.fields) do fields[#fields + 1] = tostring(values[field] or "") end
+            parts[#parts + 1] = section.id .. checksum(table.concat(fields, "\t"))
+        end
+        manifest = table.concat(parts)
+    end
+    if channel == "ALL" then
+        self:SendProfileManifest("PRIVATE", nil, manifest)
+        if IsInGuild and IsInGuild() then self:SendProfileManifest("GUILD", nil, manifest) end
+    elseif channel == "PRIVATE" then
+        for peer in pairs(self.privatePeers or {}) do
+            if self:IsPrivatePeer(peer) and not (self:UsesGuild() and self:IsGuildCharacter(peer)) then self:SendProfileManifest("WHISPER", peer, manifest) end
+        end
+    elseif self:CanCommunicate(channel, target) then Comm:Send("V|" .. manifest, channel, target) end
+end
+
+function ns:ProcessAutoSyncRequests()
+    Comm.autoWanted, Comm.autoActive = Comm.autoWanted or {}, Comm.autoActive or {}
+    if self:Mode() == "offline" then Comm.autoWanted, Comm.autoActive = {}, {}; return end
+    local now, active = GetTime(), 0
+    for peer, deadline in pairs(Comm.autoActive) do
+        if deadline <= now then Comm.autoActive[peer] = nil else active = active + 1 end
+    end
+    if active >= 2 then return end
+    for peer, wanted in pairs(Comm.autoWanted) do
+        if not Comm.autoActive[peer] then
+            Comm.autoWanted[peer] = nil
+            if self:CanCommunicate("WHISPER", peer) then
+                local profile, parts = self.db.players[peer], {}
+                local known = profile and profile.syncSections or {}
+                local missing = false
+                for _, section in ipairs(sections) do
+                    if wanted[section.id] and known[section.id] ~= wanted[section.id] then missing = true end
+                    if known[section.id] then parts[#parts + 1] = section.id .. known[section.id] end
+                end
+                if missing then
+                    Comm.autoActive[peer] = now + 180
+                    Comm:Send("Q|" .. table.concat(parts), "WHISPER", peer)
+                    return
+                end
+            end
+        end
+    end
+end
+
+function ns:AutoSyncTick()
+    if not groupChannel() then return end
+    if self.DiscoverPrivateRoster then self:DiscoverPrivateRoster() end
+    self:SendProfileManifest()
+end
+
 function ns:ResetCommunication()
     Comm.queue, Comm.incoming, Comm.requests = {}, {}, {}
     Comm.incomingBytes = 0
     Comm.groupSyncUntil = nil
     Comm.publishIntent = nil
+    Comm.autoWanted, Comm.autoActive, Comm.autoReplies = {}, {}, {}
     Comm.profilePending, Comm.profileOptions = false, nil
     Comm.profileGeneration = (Comm.profileGeneration or 0) + 1
     Comm.profileCache = {}
@@ -101,7 +167,14 @@ function Comm:Initialize()
         if ns.RefreshWindow then ns:RefreshWindow() end
     end)
     self.ticker = C_Timer.NewTicker(0.12, function() self:FlushOne() end)
-    self.statusTicker = C_Timer.NewTicker(1, function() if ns.UpdateSyncIndicator then ns:UpdateSyncIndicator() end end)
+    self.statusTicker = C_Timer.NewTicker(1, function()
+        ns:ProcessAutoSyncRequests()
+        if ns.UpdateSyncIndicator then ns:UpdateSyncIndicator() end
+    end)
+    self.autoTicker = C_Timer.NewTicker(300 + math.random(0, 60), function() ns:AutoSyncTick() end)
+    ns:On("PLAYER_ENTERING_WORLD", function()
+        C_Timer.After(10 + math.random() * 30, function() ns:AutoSyncTick() end)
+    end)
     self.cleanupTicker = C_Timer.NewTicker(10, function()
         for key, pending in pairs(self.incoming) do
             if GetTime() - pending.at > 120 then
@@ -281,6 +354,7 @@ function Comm:OnMessage(prefix, message, channel, sender)
                 -- The peer is not asked to upload a profile in return.
                 ns:SendProfile("WHISPER", sender, { priority = 1, force = true })
             end
+            if not known then ns:SendProfileManifest("WHISPER", sender) end
             -- Handshake establishes a route only; it never requests profiles.
             return
         end
@@ -293,9 +367,27 @@ function Comm:OnMessage(prefix, message, channel, sender)
         -- GUILD is an authenticated guild transport; roster data may not be loaded yet.
         ns.guildMembers = ns.guildMembers or {}; ns.guildMembers[sender] = true
     elseif not ns:UsesGuild() or not ns:IsGuildCharacter(sender) then return end
-    -- Legacy requests are deliberately ignored: one user's click must not
-    -- make every online client upload its profile.
-    if message:sub(1, 2) == "Q|" then return end
+    if message:sub(1, 2) == "V|" then
+        local wanted = signatures(message:sub(3))
+        if next(wanted) then
+            self.autoWanted = self.autoWanted or {}
+            local count = 0; for _ in pairs(self.autoWanted) do count = count + 1 end
+            if self.autoWanted[sender] or count < 200 then self.autoWanted[sender] = wanted end
+        end
+        return
+    end
+    if message:sub(1, 2) == "Q|" then
+        -- Requests are targeted only; guild-wide legacy requests stay ignored.
+        if channel ~= "WHISPER" then return end
+        self.autoReplies = self.autoReplies or {}
+        if self.autoReplies[sender] and GetTime() - self.autoReplies[sender] < 30 then return end
+        self.autoReplies[sender] = GetTime()
+        local known = signatures(message:sub(3))
+        C_Timer.After(math.random() * 3, function()
+            if ns:CanCommunicate("WHISPER", sender) then ns:SendProfile("WHISPER", sender, { known = known, priority = 4 }) end
+        end)
+        return
+    end
     local kind, transferID, indexText, totalText, chunk = message:match("^D|([^|]*)|([^|]*)|(%d+)|(%d+)|(.*)$")
     if not kind or not ({ P = true, B = true, R = true, M = true, U = true })[kind] then return end
     if kind == "P" and self.groupSyncUntil and ns:IsCurrentGroupCharacter(sender) then
@@ -333,7 +425,10 @@ function Comm:OnMessage(prefix, message, channel, sender)
         local payload = table.concat(bucket.chunks)
         self.incoming[transfer] = nil
         self.incomingBytes = math.max(0, (self.incomingBytes or 0) - (bucket.bytes or 0))
-        if kind == "P" then ns:AcceptProfile(payload, sender, unescape, split, privateCode) end
+        if kind == "P" then
+            ns:AcceptProfile(payload, sender, unescape, split, privateCode)
+            if self.autoActive and payload:find("\tZ\t", 1, true) then self.autoActive[sender] = nil end
+        end
         if kind == "B" then ns:AcceptBoe(payload, sender, unescape, split) end
         if kind == "R" then ns:AcceptBoeResponse(payload, sender, unescape, split) end
         if kind == "M" then ns:AcceptMacro(payload, sender, unescape, split, privateCode) end

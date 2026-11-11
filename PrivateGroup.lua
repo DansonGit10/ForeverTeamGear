@@ -95,6 +95,20 @@ function Private:OnPresence(message, sender, ...)
     if ns.SendPrivateHello then ns:SendPrivateHello(sender) end
 end
 
+function ns:DiscoverPrivateRoster()
+    local name = self:PrivateChannelName()
+    local channel = name and GetChannelName and GetChannelName(name)
+    if not channel or channel == 0 then return end
+    if not GetNumChannelMembers or not GetChannelRosterInfo then return end
+    local ok, count = pcall(GetNumChannelMembers, channel)
+    if not ok or type(count) ~= "number" then return end
+    for index = 1, math.min(count, 200) do
+        local memberOK, member = pcall(GetChannelRosterInfo, channel, index)
+        local key = memberOK and type(member) == "string" and self:NormalizeSender(member)
+        if key and key ~= self:PlayerKey() and not self:IsPrivatePeer(key) then self:SendPrivateHello(key) end
+    end
+end
+
 function Private:Initialize()
     ns:ResetPrivateDiscovery()
     self.channel = ns.db.settings.privateChannel

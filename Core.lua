@@ -1,7 +1,7 @@
 local ADDON_NAME, ns = ...
 
 ns.name = ADDON_NAME
-ns.version = "0.30.8"
+ns.version = "0.31.0"
 ns.prefix = "FTG11"
 ns.events = {}
 ns.modules = {}

@@ -398,10 +398,7 @@ local function serializeProfile(profile)
     }
 end
 
-function ns:SendProfile(channel, target, options)
-    if not channel or (channel ~= "PRIVATE" and channel ~= "ALL" and not self:CanCommunicate(channel, target)) then return end
-    if channel == "ALL" and not (self:Mode() == "group" and self:UsesGuild()) then return end
-    if channel == "PRIVATE" and self:Mode() ~= "group" then return end
+function ns:SharedProfileValues()
     local profile = self:ScanProfile()
     local values = serializeProfile(profile)
     values[22], values[23] = self:PlayerIdentity()
@@ -411,7 +408,14 @@ function ns:SendProfile(channel, target, options)
     if not self:CanShare("bags") then values[13] = "" end
     if not self:CanShare("bank") then values[14], values[15] = "", 0 end
     values[16] = (self:CanShare("gear") and "1" or "0") .. (self:CanShare("bags") and "1" or "0") .. (self:CanShare("bank") and "1" or "0")
-    self:SendEncoded("P", values, channel, target, options)
+    return values
+end
+
+function ns:SendProfile(channel, target, options)
+    if not channel or (channel ~= "PRIVATE" and channel ~= "ALL" and not self:CanCommunicate(channel, target)) then return end
+    if channel == "ALL" and not (self:Mode() == "group" and self:UsesGuild()) then return end
+    if channel == "PRIVATE" and self:Mode() ~= "group" then return end
+    self:SendEncoded("P", self:SharedProfileValues(), channel, target, options)
 end
 
 function ns:RefreshReceivedProfiles()
