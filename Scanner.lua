@@ -128,6 +128,15 @@ local function scanBank()
     return result
 end
 
+local function updateProfessionSkill(profession, rank, maximum)
+    local oldRank, oldMaximum = profession.rank or 0, profession.maxRank or 0
+    -- Skill points only increase for a known profession. Temporary/stale API
+    -- values must not undo a newer reading from its open profession window.
+    profession.rank = math.max(oldRank, tonumber(rank) or 0)
+    profession.maxRank = math.max(oldMaximum, tonumber(maximum) or 0)
+    return profession.rank ~= oldRank or profession.maxRank ~= oldMaximum
+end
+
 local function scanProfessions(existing)
     local result = existing or {}
     if not GetProfessions or not GetProfessionInfo then return result end
@@ -142,7 +151,8 @@ local function scanProfessions(existing)
             if name then
                 found[name] = true
                 local old = result[name] or {}
-                result[name] = { rank = rank or 0, maxRank = maxRank or 0, icon = icon or old.icon, recipes = old.recipes or {} }
+                result[name] = { rank = old.rank or 0, maxRank = old.maxRank or 0, icon = icon or old.icon, recipes = old.recipes or {} }
+                updateProfessionSkill(result[name], rank, maxRank)
             end
         end
     end
@@ -240,7 +250,14 @@ function ns:ScanRecipes(suppressBroadcast)
     if not professionName or professionName == "" then return false end
     local profile = self:ScanProfile()
     local categories = categoryNames()
-    local profession = profile.professions[professionName] or { rank = base.skillLevel or 0, maxRank = base.maxSkillLevel or 0 }
+    local profession = profile.professions[professionName] or { rank = 0, maxRank = 0, recipes = {} }
+    local skillChanged = updateProfessionSkill(profession, base.skillLevel, base.maxSkillLevel)
+    profile.professions[professionName] = profession
+    if skillChanged then
+        profile.updated = self:Now()
+        if not suppressBroadcast then self:BroadcastProfile() end
+        self:RefreshWindow()
+    end
     local idsOK, ids = pcall(C_TradeSkillUI.GetAllRecipeIDs)
     if not idsOK or type(ids) ~= "table" or #ids == 0 then return false end
     local recipes = {}
@@ -604,7 +621,16 @@ function Scanner:Initialize()
             if BankFrame and BankFrame:IsShown() then ns:ScanBankInventory() end
         end)
     end)
-    ns:On("SKILL_LINES_CHANGED", function() ns:ScanAll() end)
+    ns:On("SKILL_LINES_CHANGED", function()
+        if Scanner.skillSyncPending then return end
+        Scanner.skillSyncPending = true
+        C_Timer.After(0.5, function()
+            Scanner.skillSyncPending = false
+            ns:ScanAll()
+            ns:ScanRecipes(true)
+            ns:BroadcastProfile()
+        end)
+    end)
     local function queueRecipeScan(delay)
         if Scanner.recipeScanPending then return end
         Scanner.recipeScanPending = true
