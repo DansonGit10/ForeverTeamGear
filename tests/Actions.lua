@@ -189,3 +189,55 @@ assert(ns:PruneBoe() and expired.deleted and #ns.db.boe == 1)
 ns:ClearBoe()
 assert(#ns.db.boe == 0 and recent.deleted)
 print("PASS: local macro deletion, duplicate suppression, explicit reshare, 48-hour BoE expiry and clear all")
+
+-- Dismissed alerts must remain suppressed across duplicate packets and reload.
+ns.db.players.Me.level = 60
+ns.db.settings.alertMinQuality = 0
+ns.ComparisonFor = function() return {{profile=ns.db.players.Me,usable=true,delta=10,slot=16}} end
+local alert = {id=15210,looter="Me",at=200000,quality=2,classID=2,subclassID=15,equipLoc="INVTYPE_WEAPON",minLevel=1,
+    link="|cff1eff00|Hitem:15210:0:0:0:0:0:123:456:30:1|h[Blade of the Bear]|h|r",name="Blade of the Bear",ilvl=30}
+ns:AnnounceBoeUpgrades(alert)
+assert(popup.shown)
+popup.CloseButton.scripts.OnClick()
+assert(not popup.shown and next(ns.db.dismissedBoeAlerts))
+local reloaded = {modules={}}
+for key,value in pairs(ns) do if key~="modules" then reloaded[key]=value end end
+assert(loadfile("Loot.lua"))("ForeverTeamGear",reloaded)
+reloaded.ComparisonFor=ns.ComparisonFor
+local previousPopup = popup
+local duplicate = {}
+for key,value in pairs(alert) do duplicate[key]=value end
+duplicate.link="|cff1eff00|Hitem:15210:0:0:0:0:0:123:456:31:2|h[Blade of the Bear]|h|r"
+reloaded:AnnounceBoeUpgrades(duplicate)
+assert(popup==previousPopup and not popup.shown, "Dismiss must survive reload and viewer-dependent link changes")
+local created = {}
+local create = CreateFrame
+CreateFrame = function(...)
+    local value=create(...); created[#created+1]=value; return value
+end
+reloaded:AnnounceBoeUpgrades(alert,true)
+assert(popup.shown, "Manual comparison must still open dismissed drops")
+local dismiss
+for _,value in ipairs(created) do if value.text=="Dismiss" then dismiss=value end end
+assert(dismiss)
+dismiss.scripts.OnClick()
+assert(not popup.shown)
+duplicate.at=200060
+reloaded:AnnounceBoeUpgrades(duplicate)
+assert(popup.shown, "A distinct later drop must still be eligible for an alert")
+print("PASS: X and Dismiss persist suppression across reload, duplicate delivery and link-level changes; manual compare and new drops remain available")
+
+local currentLink=alert.link
+NUM_BAG_SLOTS=0
+C_Container={GetContainerNumSlots=function() return 1 end,GetContainerItemInfo=function() return {itemID=15210,hyperlink=currentLink,stackCount=1} end}
+local count=0
+local scanner=ns.modules[1]
+scanner.counts={}
+scanner.Consider=function() count=count+1 end
+scanner:Scan()
+currentLink=duplicate.link
+scanner:Scan()
+scanner:Scan()
+assert(count==1, "Viewer-dependent hyperlink changes must not be detected as new loot")
+assert(ns:LootVariantKey(alert.link)~=ns:LootVariantKey(alert.link:gsub(":123:456",":124:456")), "Random stat suffixes must remain distinct")
+print("PASS: stable bag-loot detection ignores link level/spec changes while preserving random-stat variants")

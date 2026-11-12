@@ -172,3 +172,5 @@ Version 0.30.8: Recipe capture waits for the profession API to be ready, retries
 Version 0.31.1: Automatic BoE popups first check the logged-in character's class, armor/weapon compatibility and required level. An upgrade for another player no longer opens a popup when the local character cannot equip the item. Unknown item classification suppresses automatic alerts; manual team comparisons and Test Alert remain available.
 
 Version 0.31.2: Skill-line changes queue an immediate profession update. The open profession window refreshes skill rank and cap on existing records independently of recipe loading; stale API readings cannot overwrite newer skill values. Reopen each profession once and use Share my data to repair an older received snapshot.
+
+Version 0.31.3: Automatic alert deduplication and X/Dismiss state persist locally for 48 hours, including across reloads and duplicate deliveries. Bag loot identity ignores viewer level/specialization and link display text while preserving random-stat suffixes and unique seeds, preventing existing items from being repeatedly detected as new drops. Manual comparisons and distinct later drops remain eligible.

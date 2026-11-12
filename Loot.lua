@@ -21,8 +21,32 @@ local EQUIP_SLOTS = {
     INVTYPE_RANGED = { 18 }, INVTYPE_RANGEDRIGHT = { 18 }, INVTYPE_THROWN = { 18 },
 }
 
+function ns:LootVariantKey(reference)
+    local value = tostring(reference)
+    local item = value:match("(item:[^|]+)")
+    if not item then return "item:" .. tostring(tonumber(reference) or 0) end
+    local fields = {}
+    for field in (item .. ":"):gmatch("(.-):") do fields[#fields + 1] = field end
+    -- Link level and specialization describe the viewer, not the dropped item.
+    for index = 1, math.max(11, #fields) do fields[index] = fields[index] ~= "" and fields[index] or "0" end
+    fields[10], fields[11] = "0", "0"
+    while #fields > 9 and fields[#fields] == "0" do table.remove(fields) end
+    return table.concat(fields, ":")
+end
+
+local function noticeKey(record)
+    local owner = ns.NormalizeSender and ns:NormalizeSender(record.looter or "?") or record.looter or "?"
+    return table.concat({tostring(record.id or 0), owner, tostring(record.at or 0), ns:LootVariantKey(record.link or record.id)}, "|")
+end
+
+function ns:DismissBoeAlert(record)
+    if not record or record.isTest then return end
+    self.db.dismissedBoeAlerts = self.db.dismissedBoeAlerts or {}
+    self.db.dismissedBoeAlerts[noticeKey(record)] = self:Now()
+end
+
 local function allBagCounts()
-    local counts = {}
+    local counts, links = {}, {}
     local lastBag = NUM_BAG_SLOTS or 4
     for bag = 0, lastBag do
         local slots = C_Container.GetContainerNumSlots(bag)
@@ -30,12 +54,13 @@ local function allBagCounts()
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info and info.itemID then
                 local link = info.hyperlink or (C_Container.GetContainerItemLink and C_Container.GetContainerItemLink(bag, slot))
-                local key = link or info.itemID
+                local key = ns:LootVariantKey(link or info.itemID)
+                if link then links[key] = link end
                 counts[key] = (counts[key] or 0) + (info.stackCount or 1)
             end
         end
     end
-    return counts
+    return counts, links
 end
 
 local function getItemInfo(id)
@@ -139,12 +164,12 @@ function Loot:Consider(reference, quantity)
 end
 
 function Loot:Scan()
-    local fresh = allBagCounts()
+    local fresh, links = allBagCounts()
     for id, count in pairs(fresh) do
         local increase = count - (self.counts[id] or 0)
         if increase > 0 then
             self:AnnounceWantedMaterial(tonumber(id) or tonumber(tostring(id):match("item:(%d+)")), increase)
-            self:Consider(id, increase)
+            if links[id] then self:Consider(links[id], increase) end
         end
     end
     self.counts = fresh
@@ -153,6 +178,9 @@ end
 function ns:PruneBoe()
     local cutoff = self:Now() - 48 * 60 * 60
     local changed = false
+    for _, field in ipairs({"dismissedBoeAlerts", "shownBoeAlerts"}) do
+        for key, stamp in pairs(self.db[field] or {}) do if stamp < cutoff then self.db[field][key] = nil end end
+    end
     for index = #(self.db.boe or {}), 1, -1 do
         local record = self.db.boe[index]
         if not record.at or record.at < cutoff then
@@ -197,6 +225,7 @@ function ns:AcceptBoe(payload, sender, unescape, split)
     if not record.id or record.id <= 0 or not self:SameCharacter(record.looter, sender) or not EQUIP_SLOTS[record.equipLoc] then return end
     if record.at < self:Now() - 48 * 60 * 60 then return end
     self:PruneBoe()
+    record.looter = self:NormalizeSender(record.looter)
     for _, old in ipairs(self.db.boe) do
         if old.id == record.id and old.looter == record.looter and old.at == record.at then return end
     end
@@ -480,7 +509,7 @@ local function createUpgradePopup()
     close:ClearAllPoints(); close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     close:SetFrameLevel(frame:GetFrameLevel() + 10)
     close:EnableMouse(true); close:RegisterForClicks("LeftButtonUp")
-    close:SetScript("OnClick", function() frame:Hide() end)
+    close:SetScript("OnClick", function() ns:DismissBoeAlert(frame.currentRecord); frame:Hide() end)
     close:Show()
     frame.CloseButton = close
 
@@ -522,7 +551,7 @@ local function createUpgradePopup()
     end)
     local dismiss = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     dismiss:SetSize(90, 24); dismiss:SetPoint("LEFT", openList, "RIGHT", 6, 0); dismiss:SetText("Dismiss")
-    dismiss:SetScript("OnClick", function() frame:Hide() end)
+    dismiss:SetScript("OnClick", function() ns:DismissBoeAlert(frame.currentRecord); frame:Hide() end)
 
     local responseStatus = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     responseStatus:SetPoint("BOTTOMLEFT", 20, 49); responseStatus:SetPoint("RIGHT", -20, 0)
@@ -631,8 +660,8 @@ function ns:AnnounceBoeUpgrades(record, manual)
     if not record or record.deleted or not self.db or (not manual and not self:AllowsAutomaticAlert(record.quality)) then return end
     if not self:IsVisibleCharacter(record.looter) then return end
     if not manual and not self:CanReceiveBoeAlert(record) then return end
-    local noticeKey = table.concat({ tostring(record.id or 0), tostring(record.looter or "?"), tostring(record.at or 0) }, ":")
-    if not manual and Loot.notified[noticeKey] then return end
+    local key = noticeKey(record)
+    if not manual and (Loot.notified[key] or (self.db.dismissedBoeAlerts or {})[key] or (self.db.shownBoeAlerts or {})[key]) then return end
     local upgrades = {}
     for _, comparison in ipairs(self:ComparisonFor(record, true)) do
         local profileKey = comparison.profile and comparison.profile.key
@@ -652,7 +681,11 @@ function ns:AnnounceBoeUpgrades(record, manual)
         if manual then self:Print("No potential upgrades for the selected audience in the saved equipment data.") end
         return
     end
-    if not manual then Loot.notified[noticeKey] = true end
+    if not manual then
+        Loot.notified[key] = true
+        self.db.shownBoeAlerts = self.db.shownBoeAlerts or {}
+        self.db.shownBoeAlerts[key] = self:Now()
+    end
     showUpgradeNotice(record, upgrades)
 end
 
