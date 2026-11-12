@@ -1293,6 +1293,7 @@ function UI:Refresh()
 end
 
 function ns:RefreshWindow()
+    if ns.RefreshTalentBrowser then ns:RefreshTalentBrowser() end
     if UI.frame then UI:Refresh() end
     if UI.professionBrowser and UI.professionBrowser:IsShown() then UI:RefreshProfessionBrowser() end
     if ns.RefreshMacroWindow then ns:RefreshMacroWindow() end

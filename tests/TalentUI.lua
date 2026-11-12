@@ -8,6 +8,7 @@ local function widget(kind, parent)
         if key == "SetText" then return function(self, text) self.text = text end end
         if key == "SetTexture" then return function(self, texture) self.texture = texture end end
         if key == "SetDesaturated" then return function(self, value) self.desaturated = value end end
+        if key == "IsShown" then return function(self) return self.shown end end
         if key == "Show" then return function(self) self.shown = true end end
         if key == "Hide" then return function(self) self.shown = false end end
         return function() end
@@ -72,3 +73,10 @@ for _, node in ipairs(crowded) do
 end
 assert(count == 32 and height > 492, "Overflow talents must remain available through scrolling")
 print("PASS: collision-free talent grid with outliers, coincident nodes, stable spacing, complete node preservation and scroll overflow")
+
+ns.db.players.Priest.talents.nodes[6].rank=3
+ns:RefreshTalentBrowser()
+local updated=false
+for _,value in ipairs(widgets) do if value.kind=="Button" and value.shown and value.talentName=="Talent 6" then updated=value.currentRank==3 and value.rank.text=="3/5" end end
+assert(updated, "An open talent window must update when synchronized ranks change")
+print("PASS: open talent browser refreshes synchronized build changes")

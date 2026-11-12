@@ -251,8 +251,24 @@ local function setTreeBackground(panel, profile, group)
     panel.backgroundPieces[4]:SetTexture(base .. "BottomRight")
 end
 
+local function talentSignature(profile)
+    local parts = {tostring(profile.level or 0), tostring(profile.specName or "")}
+    for id,node in pairs(profile.talents and profile.talents.nodes or {}) do parts[#parts+1]=id .. ":" .. (node.rank or 0) .. ":" .. (node.entryID or 0) end
+    for _,group in ipairs(profile.talents and profile.talents.groups or {}) do parts[#parts+1]=group.id .. ":" .. (group.points or 0) end
+    table.sort(parts)
+    return table.concat(parts,"|")
+end
+
+function ns:RefreshTalentBrowser()
+    if not TalentUI.frame or not TalentUI.frame:IsShown() then return end
+    local profile = self.db.players[TalentUI.profileKey]
+    if not profile or not self:IsVisibleCharacter(TalentUI.profileKey) then TalentUI.frame:Hide(); return end
+    if TalentUI.signature ~= talentSignature(profile) then TalentUI:ShowProfile(profile) end
+end
+
 function TalentUI:ShowProfile(profile)
     if not self.frame then createBrowser() end
+    self.profileKey, self.signature = profile.key, talentSignature(profile)
     hideDynamic()
     self.frame.status:Hide()
     self.frame.TitleText:SetText("Talents — " .. (ns.ProfileChoiceLabel and ns.ProfileChoiceLabel(profile) or profile.name or "Character"))

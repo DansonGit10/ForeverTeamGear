@@ -31,62 +31,62 @@ end
 local function currentSpec(classID)
     if C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits and C_Traits.GetConfigInfo then
         local configOK, configID = pcall(C_ClassTalents.GetActiveConfigID)
-        if configOK and configID then
-            local infoOK, configInfo = pcall(C_Traits.GetConfigInfo, configID)
-            local treeID = infoOK and configInfo and configInfo.treeIDs and configInfo.treeIDs[1]
-            if treeID and C_Traits.GetGroupDisplayInfoByTreeID and C_Traits.GetGroupCurrencyInfo then
-                local displayOK, displays = pcall(C_Traits.GetGroupDisplayInfoByTreeID, treeID)
-                if displayOK and type(displays) == "table" and #displays > 0 then
-                    table.sort(displays, function(a, b) return (a.orderIndex or 0) < (b.orderIndex or 0) end)
-                    local groupIDs = {}
-                    for _, display in ipairs(displays) do groupIDs[#groupIDs + 1] = display.groupID end
-                    local currencyOK, groupCurrencies = pcall(C_Traits.GetGroupCurrencyInfo, configID, groupIDs)
-                    local pointsByGroup = {}
-                    if currencyOK and type(groupCurrencies) == "table" then
-                        for _, groupCurrency in ipairs(groupCurrencies or {}) do
-                            local points = 0
-                            for _, currency in ipairs(groupCurrency.currencyInfos or {}) do
-                                points = points + (currency.spentInTree or currency.spent or 0)
-                            end
-                            pointsByGroup[groupCurrency.traitNodeGroupID] = points
+        if configOK and configID and configID ~= (Constants and Constants.TraitConsts and Constants.TraitConsts.VIEW_TRAIT_CONFIG_ID or -1) then
+            local infoOK, config = pcall(C_Traits.GetConfigInfo, configID)
+            local treeID = infoOK and config and config.treeIDs and config.treeIDs[1]
+            if treeID and C_Traits.GetGroupDisplayInfoByTreeID and C_Traits.GetTreeNodes and C_Traits.GetNodeInfo then
+                local groupsOK, displays = pcall(C_Traits.GetGroupDisplayInfoByTreeID, treeID)
+                local nodesOK, nodeIDs = pcall(C_Traits.GetTreeNodes, treeID)
+                if groupsOK and type(displays) == "table" and #displays > 0 and nodesOK and type(nodeIDs) == "table" and #nodeIDs > 0 then
+                    table.sort(displays, function(a,b) return (a.orderIndex or 0) < (b.orderIndex or 0) end)
+                    local specID = tonumber(config.specID) or foreverSpecID(classID)
+                    local data = {treeID=treeID,specID=specID,groups={},nodes={}}
+                    local points, knownGroups, ids = {}, {}, {}
+                    local rankKnown = false
+                    for _, group in ipairs(displays) do ids[#ids+1]=group.groupID end
+                    for _, nodeID in ipairs(nodeIDs) do
+                        local ok, node = pcall(C_Traits.GetNodeInfo, configID, nodeID)
+                        if not ok or not node then return 0, "", nil end
+                        local rank = tonumber(node.activeRank)
+                        if rank == nil then rank = tonumber(node.currentRank) end
+                        if rank == nil then rank = tonumber(node.activeEntry and node.activeEntry.rank) end
+                        if rank ~= nil then rankKnown = true end
+                        rank = rank or 0
+                        if rank > 0 then data.nodes[nodeID] = {rank=rank,entryID=node.activeEntry and node.activeEntry.entryID or node.entryIDs and node.entryIDs[1] or 0} end
+                        for _, groupID in ipairs(node.groupIDs or {}) do
+                            knownGroups[groupID]=true
+                            points[groupID]=(points[groupID] or 0)+rank
                         end
-                        local talentData = { treeID = treeID, specID = foreverSpecID(classID), groups = {}, nodes = {} }
-                        local parts = {}
-                        for _, display in ipairs(displays) do
-                            local points = pointsByGroup[display.groupID] or 0
-                            local name = tostring(display.displayName or "Tree")
-                            parts[#parts + 1] = string.format("%s %d", name, points)
-                            talentData.groups[#talentData.groups + 1] = {
-                                id = display.groupID, name = name, icon = display.icon or 0,
-                                order = display.orderIndex or #talentData.groups + 1, points = points,
-                            }
-                        end
-                        if C_Traits.GetTreeNodes and C_Traits.GetNodeInfo then
-                            local nodesOK, nodeIDs = pcall(C_Traits.GetTreeNodes, treeID)
-                            if nodesOK then
-                                for _, nodeID in ipairs(nodeIDs or {}) do
-                                    local nodeOK, nodeInfo = pcall(C_Traits.GetNodeInfo, configID, nodeID)
-                                    local rank = nodeOK and nodeInfo and (nodeInfo.currentRank or nodeInfo.activeRank or 0) or 0
-                                    if rank > 0 then
-                                        talentData.nodes[nodeID] = {
-                                            rank = rank,
-                                            entryID = nodeInfo.activeEntry and nodeInfo.activeEntry.entryID or 0,
-                                        }
-                                    end
+                    end
+                    if not rankKnown then return 0, "", nil end
+                    if C_Traits.GetGroupCurrencyInfo then
+                        local ok, currencies = pcall(C_Traits.GetGroupCurrencyInfo,configID,ids)
+                        if ok and type(currencies)=="table" then
+                            for _, group in ipairs(currencies) do
+                                if not knownGroups[group.traitNodeGroupID] then
+                                    local spent=0
+                                    for _, currency in ipairs(group.currencyInfos or {}) do spent=spent+(currency.spentInTree or currency.spent or 0) end
+                                    points[group.traitNodeGroupID]=spent
                                 end
                             end
                         end
-                        if #parts > 0 then return talentData.specID, table.concat(parts, " / "), talentData end
                     end
+                    local parts={}
+                    for _, group in ipairs(displays) do
+                        local name, spent=tostring(group.displayName or "Tree"),points[group.groupID] or 0
+                        parts[#parts+1]=name .. " " .. spent
+                        data.groups[#data.groups+1]={id=group.groupID,name=name,icon=group.icon or 0,order=group.orderIndex or #data.groups+1,points=spent}
+                    end
+                    return specID,table.concat(parts," / "),data
                 end
             end
         end
     end
-    if not GetSpecialization or not GetSpecializationInfo then return 0, "" end
+    if not GetSpecialization or not GetSpecializationInfo then return 0, "", nil end
     local index = GetSpecialization()
-    if not index then return 0, "" end
-    local id, name = GetSpecializationInfo(index)
-    return id or 0, name or "", nil
+    if not index then return 0, "", nil end
+    local id,name=GetSpecializationInfo(index)
+    return id or 0,name or "",nil
 end
 
 local function scanGear()
@@ -213,6 +213,7 @@ function ns:ScanProfile()
     local profile = self.db.players[key] or {}
     local className, classToken, classID = UnitClass("player")
     local specID, specName, talents = currentSpec(classID)
+    Scanner.talentScanReady = talents ~= nil
     profile.key = key
     local fullName = self:UnitIdentity("player")
     profile.name = fullName or UnitName("player") or key
@@ -221,9 +222,10 @@ function ns:ScanProfile()
     profile.classToken = classToken or ""
     profile.classID = classID or 0
     profile.level = UnitLevel("player") or 0
-    profile.specID = specID
-    profile.specName = specName
-    profile.talents = talents or profile.talents
+    if talents then
+        if not talents.specID or talents.specID == 0 then talents.specID = profile.talents and profile.talents.specID or profile.specID or 0 end
+        profile.specID, profile.specName, profile.talents = talents.specID, specName, talents
+    elseif not profile.talents then profile.specID, profile.specName = specID, specName end
     profile.gear = scanGear()
     profile.inventory = profile.inventory or { bank = {} }
     profile.inventory.bags = scanBags()
@@ -647,15 +649,25 @@ function Scanner:Initialize()
     ns:On("ITEM_DATA_LOAD_RESULT", function()
         if C_TradeSkillUI and C_TradeSkillUI.IsTradeSkillReady and C_TradeSkillUI.IsTradeSkillReady() then queueRecipeScan(0.5) end
     end)
-    local function queueTalentSync()
+    local function queueTalentSync(configID)
+        local viewID = Constants and Constants.TraitConsts and Constants.TraitConsts.VIEW_TRAIT_CONFIG_ID or -1
+        if configID == viewID then return end
         if Scanner.talentSyncPending then return end
         Scanner.talentSyncPending = true
-        C_Timer.After(0.5, function()
-            Scanner.talentSyncPending = false
+        local attempts = 0
+        local function scan()
+            attempts = attempts + 1
             ns:ScanAll()
-            ns:BroadcastProfile()
-        end)
+            if Scanner.talentScanReady then
+                Scanner.talentSyncPending = false; ns:BroadcastProfile()
+            elseif attempts < 6 then C_Timer.After(0.5, scan)
+            else Scanner.talentSyncPending = false end
+        end
+        C_Timer.After(0.5, scan)
     end
     ns:On("TRAIT_CONFIG_UPDATED", queueTalentSync)
     ns:On("TRAIT_TREE_CURRENCY_INFO_UPDATED", queueTalentSync)
+    for _, event in ipairs({"PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_SPECIALIZATION_CHANGED", "TRAIT_CONFIG_LIST_UPDATED"}) do
+        pcall(ns.On, ns, event, function() queueTalentSync() end)
+    end
 end
