@@ -43,6 +43,31 @@ local function displayName(profile)
     return reported ~= "" and reported or tostring(profile.key or "?")
 end
 
+function ns:OpenTalentStatus()
+    local profile = self:ScanProfile()
+    local diagnostic = self.db.talentScanDiagnostics or {}
+    local talents = profile.talents or {}
+    local count = 0; for _ in pairs(talents.nodes or {}) do count=count+1 end
+    local lines = {"Forever Team Gear " .. self.version, "Character: " .. (profile.name or profile.key),
+        "Level: " .. tostring(profile.level), "Talent scan: " .. (diagnostic.ready and "complete" or "FAILED / incomplete"),
+        "Detail: " .. tostring(diagnostic.detail or "Unavailable"), "Tree: " .. tostring(talents.treeID),
+        "Spec: " .. tostring(talents.specID), "Build: " .. tostring(profile.specName), "Allocated nodes: " .. count,
+        "Outgoing revision: " .. tostring(self.db.syncRevision or 0)}
+    if not UI.talentStatusFrame then
+        local frame=CreateFrame("Frame","ForeverTeamGearTalentStatus",UIParent,"BasicFrameTemplateWithInset")
+        frame:SetSize(600,320);frame:SetPoint("CENTER");frame:SetFrameStrata("FULLSCREEN_DIALOG")
+        frame.TitleText:SetText("Talent synchronization status — Ctrl+C to copy")
+        local edit=CreateFrame("EditBox",nil,frame,"InputBoxTemplate")
+        edit:SetMultiLine(true);edit:SetAutoFocus(false);edit:SetFontObject(ChatFontNormal)
+        edit:SetPoint("TOPLEFT",22,-40);edit:SetSize(552,250)
+        edit:SetScript("OnEscapePressed",function() frame:Hide() end)
+        frame:SetScript("OnHide",function() edit:ClearFocus() end)
+        frame.edit=edit; UI.talentStatusFrame=frame
+    end
+    UI.talentStatusFrame:Show();UI.talentStatusFrame.edit:SetText(table.concat(lines,"\n"))
+    UI.talentStatusFrame.edit:SetFocus();UI.talentStatusFrame.edit:HighlightText()
+end
+
 function ns:OpenCopyCharacterName(profile)
     if not profile then return end
     local fullName = self:WhisperTarget(displayName(profile))

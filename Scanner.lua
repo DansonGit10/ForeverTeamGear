@@ -46,13 +46,14 @@ local function currentSpec(classID)
                     for _, group in ipairs(displays) do ids[#ids+1]=group.groupID end
                     for _, nodeID in ipairs(nodeIDs) do
                         local ok, node = pcall(C_Traits.GetNodeInfo, configID, nodeID)
-                        if not ok or not node then return 0, "", nil end
+                        if not ok or not node then return 0, "", nil, "Node " .. nodeID .. " unavailable" end
                         local rank = tonumber(node.activeRank)
                         if rank == nil then rank = tonumber(node.currentRank) end
-                        if rank == nil then rank = tonumber(node.activeEntry and node.activeEntry.rank) end
+                        local entry = type(node.activeEntry) == "table" and node.activeEntry or nil
+                        if rank == nil then rank = tonumber(entry and entry.rank) end
                         if rank ~= nil then rankKnown = true end
                         rank = rank or 0
-                        if rank > 0 then data.nodes[nodeID] = {rank=rank,entryID=node.activeEntry and node.activeEntry.entryID or node.entryIDs and node.entryIDs[1] or 0} end
+                        if rank > 0 then data.nodes[nodeID] = {rank=rank,entryID=entry and entry.entryID or node.entryIDs and node.entryIDs[1] or 0} end
                         for _, groupID in ipairs(node.groupIDs or {}) do
                             knownGroups[groupID]=true
                             points[groupID]=(points[groupID] or 0)+rank
@@ -63,10 +64,13 @@ local function currentSpec(classID)
                         local ok, currencies = pcall(C_Traits.GetGroupCurrencyInfo,configID,ids)
                         if ok and type(currencies)=="table" then
                             for _, group in ipairs(currencies) do
-                                if not knownGroups[group.traitNodeGroupID] then
+                                local groupID = type(group) == "table" and (group.traitNodeGroupID or group.groupID)
+                                if groupID and not knownGroups[groupID] then
                                     local spent=0
-                                    for _, currency in ipairs(group.currencyInfos or {}) do spent=spent+(currency.spentInTree or currency.spent or 0) end
-                                    points[group.traitNodeGroupID]=spent
+                                    for _, currency in ipairs(group.currencyInfos or {}) do
+                                        if type(currency) == "table" then spent=spent+(tonumber(currency.spentInTree or currency.spent) or 0) end
+                                    end
+                                    points[groupID]=spent
                                 end
                             end
                         end
@@ -212,8 +216,14 @@ function ns:ScanProfile()
     self.db.ownCharacters[key] = true
     local profile = self.db.players[key] or {}
     local className, classToken, classID = UnitClass("player")
-    local specID, specName, talents = currentSpec(classID)
-    Scanner.talentScanReady = talents ~= nil
+    local talentOK, specID, specName, talents, reason = pcall(currentSpec, classID)
+    if not talentOK then
+        reason, specID, specName, talents = tostring(specID), 0, "", nil
+    end
+    Scanner.talentScanReady = talentOK and talents ~= nil
+    self.db.talentScanDiagnostics = {ready=Scanner.talentScanReady,at=self:Now(),detail=Scanner.talentScanReady and "Complete" or reason or "Talent API not ready"}
+    -- A class-specific talent API failure must never freeze level, gear,
+    -- professions or the rest of this character's synchronization.
     profile.key = key
     local fullName = self:UnitIdentity("player")
     profile.name = fullName or UnitName("player") or key

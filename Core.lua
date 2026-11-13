@@ -1,7 +1,7 @@
 local ADDON_NAME, ns = ...
 
 ns.name = ADDON_NAME
-ns.version = "0.31.4"
+ns.version = "0.31.5"
 ns.prefix = "FTG11"
 ns.events = {}
 ns.modules = {}
@@ -143,6 +143,8 @@ SlashCmdList.FOREVERTEAMGEAR = function(input)
             if ns:IsPrivatePeer(target) then ns:SendProfile("WHISPER", target, { priority = 1, force = true }) end
         end)
         ns:Print("Direct sync: sending a code-checked addon handshake to " .. ns:WhisperTarget(target) .. ".")
+    elseif input == "talentstatus" then
+        ns:OpenTalentStatus()
     elseif input == "settings" or input == "setup" then
         ns:OpenSettings()
     elseif input == "sync" then

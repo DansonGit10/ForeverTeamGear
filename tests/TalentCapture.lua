@@ -45,3 +45,12 @@ local queued=#timers
 events.TRAIT_CONFIG_UPDATED(-1)
 assert(#timers==queued, "Read-only preview events must not trigger capture loops")
 print("PASS: Priest talent capture, rank API variants, missing currency fallback, classic events, delayed retry, decreases, respec and preview-loop suppression")
+
+-- Simulate a class-specific API failure outside the individual API pcalls.
+C_Traits.GetGroupDisplayInfoByTreeID=function() return {17,18} end
+UnitLevel=function() return 40 end
+local before=profile.talents
+ns:ScanProfile()
+assert(profile.level==40 and profile.talents==before, "Talent API exceptions must not freeze the rest of the Priest profile")
+assert(ns.db.talentScanDiagnostics.ready==false and ns.db.talentScanDiagnostics.detail~="Complete")
+print("PASS: malformed class-specific talent data cannot freeze the character level or erase the last complete build; failure diagnostics retained")

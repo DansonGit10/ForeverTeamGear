@@ -259,7 +259,9 @@ function Comm:QueueProfile(values, channel, target, options)
         for _, field in ipairs(section.fields) do content[#content + 1] = tostring(values[field] or "") end
         local signature = checksum(table.concat(content, "\t"))
         if not self.sectionState[section.id] or self.sectionState[section.id].signature ~= signature then
-            ns.db.syncRevision = (ns.db.syncRevision or 0) + 1
+            -- A restored/reset SavedVariables counter must not remain below
+            -- the section revisions already cached by other clients.
+            ns.db.syncRevision = math.max(ns.db.syncRevision or 0, math.floor(ns:Now() * 1000)) + 1
             self.sectionState[section.id] = { signature = signature, revision = ns.db.syncRevision }
         end
         local cacheKey = route(channel, target) .. ":" .. section.id
